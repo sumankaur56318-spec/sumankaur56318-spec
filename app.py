@@ -32,7 +32,13 @@ TRAINING_PROCESS: subprocess.Popen | None = None
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
-app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
+app.config.update(
+    PERMANENT_SESSION_LIFETIME=timedelta(days=7),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=bool(os.environ.get("VERCEL")),
+    MAX_CONTENT_LENGTH=5 * 1024 * 1024,
+)
 init_db()
 
 
@@ -66,7 +72,12 @@ def validate_csrf():
         submitted = request.form.get("csrf_token") or request.headers.get("X-CSRFToken", "")
         expected = session.get("csrf_token", "")
         if not expected or not submitted or not hmac.compare_digest(str(expected), str(submitted)):
-            return "Your session token expired. Refresh the page and try again.", 400
+            if request.endpoint == "login" and request.method == "POST":
+                next_page = request.args.get("next", "")
+                session.clear()
+                flash("The sign-in page expired. Please try again.", "error")
+                return redirect(url_for("login", next=next_page))
+            return "Your session expired. Refresh the page and try again.", 400
 
 
 def query_all(sql: str, values: tuple = ()) -> list:
@@ -142,6 +153,7 @@ def login_post():
         flash("That username and password did not match. Try the demo credentials shown below.", "error")
         return render_template("login.html", page_title="Sign in"), 401
     session.clear()
+    session.permanent = True
     session["admin_id"] = admin["admin_id"]
     session["username"] = admin["username"]
     session["csrf_token"] = secrets.token_urlsafe(32)
