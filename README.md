@@ -45,7 +45,7 @@ Open PowerShell in this `smart_attendance` folder and run:
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements-train.txt
 python app.py
 ```
 
@@ -78,6 +78,10 @@ To start again with the original demo records, stop the server, remove `instance
 
 Student and attendance records are stored in `instance/smart_attendance.db`. Face photos and trained model weights stay in this project folder. Do not commit these files or capture anyone without appropriate permission. This teaching prototype is not a production identity-verification service; check camera predictions against university IDs during demonstrations and use supervision for official records.
 
+### Persistent storage for deployment
+
+The SQLite database, captured face photos, and trained model must share a persistent writable directory. Set `ATTENDANCE_DATA_DIR` to that directory on a host with a persistent disk. Vercel serverless storage at `/tmp` is temporary and may be isolated between function instances; a Vercel deployment using the default configuration cannot reliably retain student IDs, face photos, or trained models. The training workflow also starts a local child process, so this demo should run on a persistent server rather than a serverless function unless its database, file storage, and training workflow are replaced with hosted services.
+
 ## Project structure
 
 ```text
@@ -104,6 +108,8 @@ Set these environment variables before launching `app.py`:
 $env:ADMIN_USERNAME = "campus-admin"
 $env:ADMIN_PASSWORD = "Use-a-unique-password-here"
 $env:FLASK_SECRET_KEY = "A-long-random-local-secret"
+# Optional persistent data directory (use a mounted persistent disk on a server host):
+$env:ATTENDANCE_DATA_DIR = "D:\attendance-data"
 # Optional alternate SQLite file:
 $env:ATTENDANCE_DB = "C:\\attendance-data\\smart_attendance.db"
 python app.py
@@ -127,3 +133,4 @@ The source code and project report are hosted in this GitHub repository. The `.g
 - **Port 5000 is already in use:** set `$env:PORT = "5001"`, then rerun `python app.py` and open `http://127.0.0.1:5001`.
 
 For the abstract, architecture, methodology, requirements, ANN/CNN explanations, database design, results notes, limitations, conclusion, references and viva answers, see `docs/ACADEMIC_REPORT.md`.
+

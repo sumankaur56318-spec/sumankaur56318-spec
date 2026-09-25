@@ -23,9 +23,10 @@
         <button class="button button-primary button-wide login-submit" type="submit">Sign in <span>→</span></button>
       </form>
       {% if demo_credentials_enabled %}<div class="demo-credentials"><div class="demo-title"><span>DEMO CREDENTIALS</span><button type="button" class="copy-demo" data-copy-demo>Copy</button></div><div class="credential-row"><span>Username</span><code>admin</code></div><div class="credential-row"><span>Password</span><code>SmartAttend@123</code></div><p>Change the password from Settings after you sign in.</p></div>{% endif %}
-      <div class="login-privacy"><span>⌑</span> Your data and camera photos are stored locally.</div>
+      <div class="login-privacy"><span>⌑</span>{% if ephemeral_storage %}Vercel demo storage is temporary; student and face data may not persist.{% else %}Your data and camera photos are stored on this server.{% endif %}</div>
     </div><div class="login-panel-footer">© 2026 Attendly <span>·</span> Academic project demo</div>
   </main>
   <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
 </body>
 </html>
+

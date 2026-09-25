@@ -12,11 +12,10 @@ from typing import Iterator
 from werkzeug.security import generate_password_hash
 
 BASE_DIR = Path(__file__).resolve().parent
-if os.environ.get("VERCEL"):
-    INSTANCE_DIR = Path("/tmp")
-else:
-    INSTANCE_DIR = BASE_DIR / "instance"
-DATABASE_PATH = Path(os.environ.get("ATTENDANCE_DB", INSTANCE_DIR / "smart_attendance.db"))
+DEFAULT_DATA_DIR = Path("/tmp") if os.environ.get("VERCEL") else BASE_DIR
+DATA_DIR = Path(os.environ.get("ATTENDANCE_DATA_DIR") or DEFAULT_DATA_DIR).expanduser()
+INSTANCE_DIR = DATA_DIR / "instance"
+DATABASE_PATH = Path(os.environ.get("ATTENDANCE_DB") or INSTANCE_DIR / "smart_attendance.db").expanduser()
 
 
 @contextmanager
@@ -142,3 +141,4 @@ def record_attendance(student_id: int, method: str) -> tuple[bool, sqlite3.Row |
             (student_id, today),
         ).fetchone()
         return cursor.rowcount == 1, row
+

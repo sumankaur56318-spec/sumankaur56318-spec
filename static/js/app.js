@@ -117,6 +117,30 @@
       feedback.className = `camera-feedback ${kind ? `feedback-${kind}` : ''}`;
       feedback.textContent = text;
     };
+    const waitForVideoFrame = () => new Promise((resolve, reject) => {
+      if (!video) return reject(new Error('The camera preview is unavailable. Refresh the page and try again.'));
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth && video.videoHeight) return resolve();
+
+      let timeout;
+      const cleanup = () => {
+        clearTimeout(timeout);
+        video.removeEventListener('loadeddata', checkReady);
+        video.removeEventListener('canplay', checkReady);
+      };
+      const checkReady = () => {
+        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth && video.videoHeight) {
+          cleanup();
+          resolve();
+        }
+      };
+      video.addEventListener('loadeddata', checkReady);
+      video.addEventListener('canplay', checkReady);
+      timeout = setTimeout(() => {
+        cleanup();
+        reject(new Error('Camera started, but no picture arrived. Check camera permission and try again.'));
+      }, 8000);
+      checkReady();
+    });
     const openCamera = async () => {
       if (!navigator.mediaDevices?.getUserMedia) {
         showFeedback('Camera access needs a secure page or localhost, and a browser that supports webcam access.', 'error');
@@ -126,6 +150,7 @@
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
         video.srcObject = stream;
         await video.play();
+        await waitForVideoFrame();
         placeholder?.classList.add('hidden');
         enableButton?.classList.add('hidden');
         if (captureButton) captureButton.disabled = false;
@@ -135,7 +160,14 @@
         showFeedback('Center one face in the guide and use good lighting.', 'info');
         return true;
       } catch (error) {
-        const reason = error.name === 'NotAllowedError' ? 'Camera permission was blocked. Allow camera access in your browser settings.' : 'Could not start the camera. Check that it is connected and not in use by another app.';
+        const reason = error.name === 'NotAllowedError'
+          ? 'Camera permission was blocked. Allow camera access in your browser settings.'
+          : error.message?.includes('camera picture') || error.message?.includes('camera preview') || error.message?.includes('no picture')
+            ? error.message
+            : 'Could not start the camera. Check that it is connected and not in use by another app.';
+        if (stream) stream.getTracks().forEach((track) => track.stop());
+        stream = null;
+        if (video) video.srcObject = null;
         showFeedback(reason, 'error');
         setStatus('Camera could not start');
         return false;
@@ -155,11 +187,15 @@
       setStatus('Camera is off');
     };
     const snapshot = () => {
-      if (!video?.videoWidth) throw new Error('Wait for the camera to focus, then try again.');
-      const scale = Math.min(1, 720 / video.videoWidth);
+      if (!video?.videoWidth || !video.videoHeight || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        throw new Error('Wait for the camera picture, then try again.');
+      }
+      const scale = Math.min(1, 720 / video.videoWidth, 720 / video.videoHeight);
       canvas.width = Math.round(video.videoWidth * scale);
       canvas.height = Math.round(video.videoHeight * scale);
-      canvas.getContext('2d', { alpha: false }).drawImage(video, 0, 0, canvas.width, canvas.height);
+      const context = canvas.getContext('2d', { alpha: false });
+      if (!context) throw new Error('The camera picture could not be prepared. Refresh the page and try again.');
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
       return canvas.toDataURL('image/jpeg', 0.84);
     };
 
@@ -199,8 +235,9 @@
             showFeedback(`${result.inserted ? '✓ Attendance marked' : '↻ Already checked in'} · ${result.student} (${result.university_id}) · ${Math.round(result.confidence * 100)}% match`, result.inserted ? 'success' : 'info');
             setStatus(`${result.student} · ${result.time.slice(0, 5)}`, true);
           } else if (result.error) {
-            showFeedback(result.error, 'info');
-            setStatus('Scanning · adjust position or lighting', true);
+            const unregistered = result.error === 'You are not registered here.';
+            showFeedback(result.error, unregistered ? 'error' : 'info');
+            setStatus(unregistered ? 'Unregistered face' : 'Scanning · adjust position or lighting', true);
           }
         } catch (error) { showFeedback(error.message || 'Could not scan this frame.', 'error'); }
         finally { scanBusy = false; }
@@ -233,3 +270,4 @@
     setTimeout(poll, 1400);
   }
 })();
+

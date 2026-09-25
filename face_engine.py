@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
 
 try:
     import cv2
@@ -12,14 +10,22 @@ except ImportError:
     cv2 = None
 import numpy as np
 
-BASE_DIR = Path(__file__).resolve().parent
-if os.environ.get("VERCEL"):
-    MODEL_DIR = Path("/tmp/model")
-else:
-    MODEL_DIR = BASE_DIR / "model"
+from database import DATA_DIR
+
+MODEL_DIR = DATA_DIR / "model"
 MODEL_PATH = MODEL_DIR / "attendance_cnn.keras"
 LABELS_PATH = MODEL_DIR / "labels.json"
 IMAGE_SIZE = 64
+MIN_MATCH_CONFIDENCE = 0.72
+MIN_MATCH_MARGIN = 0.18
+
+
+class UnregisteredFaceError(ValueError):
+    """Raised when the image does not match one enrolled student clearly."""
+
+    def __init__(self) -> None:
+        super().__init__("You are not registered here.")
+
 
 _classifier = None
 _model = None
@@ -80,4 +86,11 @@ def recognize(image: np.ndarray) -> tuple[str, float, tuple[int, int, int, int]]
     prepared = face.astype("float32") / 255.0
     probabilities = _model.predict(np.expand_dims(prepared, axis=0), verbose=0)[0]
     class_index = int(np.argmax(probabilities))
-    return _labels[class_index], float(probabilities[class_index]), box
+    confidence = float(probabilities[class_index])
+    if len(probabilities) < 2:
+        raise RuntimeError("Train the model with at least two active students before scanning.")
+    second_best = float(np.partition(probabilities, -2)[-2])
+    if confidence < MIN_MATCH_CONFIDENCE or confidence - second_best < MIN_MATCH_MARGIN:
+        raise UnregisteredFaceError()
+    return _labels[class_index], confidence, box
+

@@ -15,7 +15,6 @@ import sys
 from collections import Counter
 from datetime import date, datetime, timedelta
 from functools import wraps
-from pathlib import Path
 
 import cv2
 from flask import (
@@ -24,15 +23,11 @@ from flask import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from database import BASE_DIR, connect_db, get_student_by_university_id, init_db, record_attendance
-from face_engine import detect_single_face, model_ready, recognize
+from database import BASE_DIR, DATA_DIR, INSTANCE_DIR, connect_db, get_student_by_university_id, init_db, record_attendance
+from face_engine import UnregisteredFaceError, detect_single_face, model_ready, recognize
 
-if os.environ.get("VERCEL"):
-    DATASET_DIR = Path("/tmp/dataset")
-    MODEL_DIR = Path("/tmp/model")
-else:
-    DATASET_DIR = BASE_DIR / "dataset"
-    MODEL_DIR = BASE_DIR / "model"
+DATASET_DIR = DATA_DIR / "dataset"
+MODEL_DIR = DATA_DIR / "model"
 TRAINING_PROCESS: subprocess.Popen | None = None
 
 app = Flask(__name__)
@@ -61,7 +56,8 @@ def inject_template_values():
              else query_one("SELECT is_demo FROM admins ORDER BY admin_id LIMIT 1"))
     is_demo = bool(admin and admin["is_demo"])
     return {"csrf_token": session["csrf_token"], "active_admin": session.get("username", "Administrator"),
-            "now": datetime.now(), "demo_credentials_enabled": is_demo}
+            "now": datetime.now(), "demo_credentials_enabled": is_demo,
+            "ephemeral_storage": bool(os.environ.get("VERCEL"))}
 
 
 @app.before_request
@@ -105,8 +101,12 @@ def decode_image(data_url: str):
 
 
 def count_face_images() -> tuple[int, int]:
-    active_ids = {row[0] for row in query_all("SELECT university_id FROM students WHERE status = 'active'")}
-    folders = [path for path in DATASET_DIR.iterdir() if path.is_dir() and path.name in active_ids] if DATASET_DIR.exists() else []
+    active_student_ids = {row[0] for row in query_all("SELECT student_id FROM students WHERE status = 'active'")}
+    folders = [
+        DATASET_DIR / f"student_{student_id}"
+        for student_id in active_student_ids
+        if (DATASET_DIR / f"student_{student_id}").is_dir()
+    ] if DATASET_DIR.exists() else []
     counts = [len(list(path.glob("*.jpg"))) + len(list(path.glob("*.png"))) for path in folders]
     return sum(counts), sum(count > 0 for count in counts)
 
@@ -374,14 +374,13 @@ def camera_checkin():
     try:
         image = decode_image(payload.get("image"))
         university_id, confidence, _box = recognize(image)
+    except UnregisteredFaceError as error:
+        return jsonify({"ok": False, "recognized": False, "error": str(error)}), 200
     except (ValueError, RuntimeError) as error:
         return jsonify({"ok": False, "error": str(error)}), 422
-    if confidence < 0.72:
-        return jsonify({"ok": False, "recognized": False,
-                        "error": f"Face match is uncertain ({confidence:.0%}). Please try again with good lighting."}), 200
     student = get_student_by_university_id(university_id)
     if student is None or student["status"] != "active":
-        return jsonify({"ok": False, "recognized": False, "error": "That face is not linked to an active student."}), 404
+        return jsonify({"ok": False, "recognized": False, "error": "You are not registered here."}), 200
     inserted, record = record_attendance(student["student_id"], "CNN face match")
     return jsonify({"ok": True, "inserted": inserted, "recognized": True,
                     "student": student["name"], "university_id": university_id,
@@ -494,7 +493,7 @@ def start_training():
     (MODEL_DIR / "training_status.json").write_text(
         json.dumps({"state": "running", "message": "Starting the training process…"}), encoding="utf-8"
     )
-    log_file = open(BASE_DIR / "instance" / "training.log", "w", encoding="utf-8")
+    log_file = open(INSTANCE_DIR / "training.log", "w", encoding="utf-8")
     try:
         TRAINING_PROCESS = subprocess.Popen(
             [sys.executable, str(BASE_DIR / "train_model.py")], cwd=BASE_DIR,
@@ -570,3 +569,4 @@ def file_too_large(_error):
 
 if __name__ == "__main__":
     app.run(host=os.environ.get("HOST", "0.0.0.0"), port=int(os.environ.get("PORT", "5000")), debug=False)
+

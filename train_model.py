@@ -6,7 +6,6 @@ import json
 import os
 import sys
 import traceback
-from pathlib import Path
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
@@ -20,11 +19,10 @@ from sklearn.model_selection import train_test_split
 from tensorflow.keras import Sequential
 from tensorflow.keras.layers import Conv2D, Dense, Dropout, Flatten, Input, MaxPooling2D
 from tensorflow.keras.utils import to_categorical
-from database import connect_db
+from database import DATA_DIR, connect_db
 
-BASE_DIR = Path(__file__).resolve().parent
-DATASET_DIR = BASE_DIR / "dataset"
-MODEL_DIR = BASE_DIR / "model"
+DATASET_DIR = DATA_DIR / "dataset"
+MODEL_DIR = DATA_DIR / "model"
 IMAGE_SIZE = 64
 
 
@@ -189,3 +187,4 @@ if __name__ == "__main__":
         write_status("error", str(error))
         traceback.print_exc()
         sys.exit(1)
+
